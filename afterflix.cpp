@@ -1,4 +1,3 @@
-// afterflix.cpp
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -9,6 +8,7 @@
 
 using namespace std;
 
+// --- Structs ---
 struct User {
     string username;
     string password;
@@ -25,7 +25,7 @@ struct Title {
 
 const string USERS_FILE = "users.txt";
 
-// --- Utility ---
+// --- Utility Functions ---
 static inline string trim(const string &s) {
     size_t a = s.find_first_not_of(" \t\r\n");
     if (a == string::npos) return "";
@@ -62,7 +62,13 @@ bool equalsIgnoreCase(const string &a, const string &b) {
     return true;
 }
 
-// --- Users ---
+string toLower(const string& s) {
+    string result = s;
+    transform(result.begin(), result.end(), result.begin(), ::tolower);
+    return result;
+}
+
+// --- User Management ---
 vector<User> loadUsers() {
     vector<User> users;
     ifstream in(USERS_FILE);
@@ -80,7 +86,12 @@ vector<User> loadUsers() {
         u.username = trim(username);
         u.password = trim(password);
         u.genres = splitCSV(genresCSV);
-        u.membershipFee = stod(feeStr);
+        try {
+            u.membershipFee = stod(feeStr);
+        } catch (const std::exception& e) {
+            cerr << "Error parsing fee for user " << u.username << ": " << e.what() << endl;
+            u.membershipFee = 0.0;
+        }
         users.push_back(u);
     }
     return users;
@@ -88,7 +99,7 @@ vector<User> loadUsers() {
 
 void saveUsers(const vector<User> &users) {
     ofstream out(USERS_FILE);
-    for (auto &u : users) {
+    for (const auto &u : users) {
         out << u.username << "|"
             << u.password << "|"
             << joinCSV(u.genres) << "|"
@@ -99,17 +110,20 @@ void saveUsers(const vector<User> &users) {
 // --- Catalogue ---
 vector<Title> sampleCatalogue() {
     return {
-        {"Midnight Runner", {"Action","Thriller"}, "English", 8.1},
+        {"Midnight Runner", {"Action","Thriller", "Crime"}, "English", 8.1},
         {"Love in Kyoto", {"Romance","Drama"}, "Japanese", 7.4},
-        {"Galaxy Guard", {"Sci-Fi","Action"}, "English", 8.7},
-        {"Culinary Quest", {"Documentary"}, "Korean", 7.9},
-        {"Haunted Apartment", {"Horror"}, "Malay", 6.9}
+        {"Galaxy Guard", {"Sci-Fi","Action", "Adventure"}, "English", 8.7},
+        {"Culinary Quest", {"Documentary", "Food"}, "Korean", 7.9},
+        {"Haunted Apartment", {"Horror", "Thriller"}, "Malay", 6.9},
+        {"The Last Samurai", {"Action", "History", "Drama"}, "Japanese", 8.5},
+        {"Beyond the Stars", {"Sci-Fi", "Mystery"}, "English", 7.6},
+        {"Rings of Power", {"Fantasy", "Adventure"}, "English", 8.0}
     };
 }
 
-// --- Auth ---
+// --- Authentication ---
 bool usernameExists(const vector<User> &users, const string &username) {
-    for (auto &u : users) if (u.username == username) return true;
+    for (const auto &u : users) if (u.username == username) return true;
     return false;
 }
 
@@ -124,7 +138,7 @@ void registerUser(vector<User> &users) {
     }
     cout << "Enter password: ";
     getline(cin, password);
-    cout << "Enter preferred genres (comma-separated): ";
+    cout << "Enter preferred genres (comma-separated, e.g., Action, Drama, Sci-Fi): ";
     string g; getline(cin, g);
 
     double fee = 9.99;
@@ -158,15 +172,28 @@ User* loginUser(vector<User> &users) {
 
 // --- Features ---
 void recommend(const User &user, const vector<Title> &catalogue) {
-    cout << "\n--- Recommendations ---\n";
-    for (auto &t : catalogue) {
+    cout << "\n--- Recommendations for " << user.username << " ---\n";
+    int count = 0;
+    for (const auto &t : catalogue) {
         bool match = false;
-        for (auto &g : t.genres)
-            for (auto &ug : user.genres)
-                if (equalsIgnoreCase(g, ug)) match = true;
-        if (match) {
-            cout << "- " << t.name << " (" << t.language << ", Rating " << t.rating << ")\n";
+        for (const auto &g : t.genres) {
+            for (const auto &ug : user.genres) {
+                if (equalsIgnoreCase(g, ug)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (match) break;
         }
+
+        if (match) {
+            cout << "- " << t.name << " (Genres: " << joinCSV(t.genres) 
+                 << ", Lang: " << t.language << ", Rating: " << t.rating << ")\n";
+            count++;
+        }
+    }
+    if (count == 0) {
+        cout << "No current recommendations match your preferences. Try updating your genres!\n";
     }
 }
 
@@ -178,8 +205,63 @@ void changePreferences(User &u, vector<User> &allUsers) {
     u.genres = splitCSV(g);
 
     saveUsers(allUsers);
-    cout << "Preferences updated.\n";
+    cout << "Preferences updated successfully.\n";
 }
+
+void searchCatalogue(const vector<Title> &catalogue) {
+    cout << "\n--- Search & Filter Catalogue ---\n";
+    string query, genreFilter;
+    cout << "Enter title search term (e.g., 'Runner', leave blank to skip): ";
+    getline(cin, query);
+    cout << "Enter genre to filter by (e.g., 'Action', leave blank to skip): ";
+    getline(cin, genreFilter);
+
+    string lowerQuery = toLower(query);
+    string lowerGenreFilter = toLower(genreFilter);
+
+    vector<Title> results;
+
+    for (const auto& t : catalogue) {
+        bool matchesQuery = true;
+        bool matchesGenre = true;
+
+        if (!query.empty()) {
+            string lowerName = toLower(t.name);
+            if (lowerName.find(lowerQuery) == string::npos) {
+                matchesQuery = false;
+            }
+        }
+
+        if (!genreFilter.empty()) {
+            matchesGenre = false;
+            for (const auto& g : t.genres) {
+                if (toLower(g).find(lowerGenreFilter) != string::npos) {
+                    matchesGenre = true;
+                    break;
+                }
+            }
+        }
+
+        if (matchesQuery && matchesGenre) {
+            results.push_back(t);
+        }
+    }
+
+    if (results.empty()) {
+        cout << "\nNo titles found matching your criteria.\n";
+    } else {
+        cout << "\n--- Search Results (" << results.size() << " found) ---\n";
+        sort(results.begin(), results.end(), [](const Title& a, const Title& b) {
+            return a.rating > b.rating;
+        });
+
+        for (const auto& t : results) {
+            cout << "- " << t.name << " | Genres: " << joinCSV(t.genres)
+                 << " | Lang: " << t.language << " | Rating: " << t.rating << "\n";
+        }
+    }
+}
+
 
 // --- Menu ---
 void userMenu(User &u, vector<User> &allUsers, const vector<Title> &catalogue) {
@@ -187,7 +269,8 @@ void userMenu(User &u, vector<User> &allUsers, const vector<Title> &catalogue) {
         cout << "\nWelcome " << u.username << "!\n";
         cout << "1) See recommendations\n";
         cout << "2) Change preferences\n";
-        cout << "3) Logout\n";
+        cout << "3) Search/Filter catalogue\n";
+        cout << "4) Logout\n";
         cout << "Choice: ";
         string c; getline(cin, c);
         if (c == "1") {
@@ -195,10 +278,12 @@ void userMenu(User &u, vector<User> &allUsers, const vector<Title> &catalogue) {
         } else if (c == "2") {
             changePreferences(u, allUsers);
         } else if (c == "3") {
+            searchCatalogue(catalogue);
+        } else if (c == "4") {
             cout << "Logging out...\n";
             break;
         } else {
-            cout << "Invalid.\n";
+            cout << "Invalid choice. Please enter 1, 2, 3, or 4.\n";
         }
     }
 }
@@ -221,7 +306,7 @@ int main() {
             cout << "Goodbye!\n";
             break;
         } else {
-            cout << "Invalid.\n";
+            cout << "Invalid choice.\n";
         }
     }
     return 0;
